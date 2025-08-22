@@ -57,7 +57,7 @@ public:
     std::vector<int> entry_num; // 记录位置对于decode_r的entry
 
     Decode_result decode_single(Photo_num data);
-    Decode_result_all averrage_result(Decode_result_all data_all); // 归一化处理
+    void averrage_result(); // 归一化处理
     RS_read(std::string file_name, std::string file_path, bool ant_flag = false);
 };
 
@@ -74,13 +74,30 @@ std::vector<std::array<std::pair<int, double>, 3>> match_data = match_get_data()
 // 这里的数据存储方案为先存entry后存对应的tdcTIME与板子顺序相同
 
 // 获取现在有一个通道触发
-int get_triger(Photo_num data)
+int get_slid(Photo_num data)
 {
     int num = 0;
     for (auto single_data : data)
-        if (single_data[1] > 0)
+        if (single_data[0] > 2)
             num++;
     return num;
+}
+
+void RS_read::averrage_result()
+{
+    double count[32] = {0};
+    for (auto data : decode_r)
+        for (int i = 0; i < 32; i++)
+        {
+            count[i] += data.values[i];
+        }
+    double base_rate = 0;
+    for (int i = 0; i < 32; i++)
+        base_rate += count[i];
+    base_rate /= 32;
+    for (int i = 0; i < 32; i++)
+        for (Decode_result &data : decode_r)
+            data.values[i] = data.values[i] / count[i] * base_rate;
 }
 
 Decode_result RS_read::decode_single(Photo_num data)
@@ -101,11 +118,14 @@ Decode_result RS_read::decode_single(Photo_num data)
     }
     std::sort(arrange_data.begin(), arrange_data.end(), [](std::pair<double, int> &a, std::pair<double, int> &b)
               {
-                  return a.first < b.first; // 按第二个数字升序排序, lambda 表达式
+                  return a.first > b.first; // 按第1个数字降序排序, lambda 表达式
               });
-
-    if (get_triger(data) <= 3)
+    /*
+    先前上方的代码逻辑顺序错误，是否会影响到下方的解码过程还需要看情况
+    */
+    if (get_slid(data) <= 3)
     { // 单条击中情况
+    single:
         int map_x, map_y;
         double photo_num_of_slice = 0;
         for (auto each : arrange_data)
@@ -117,7 +137,7 @@ Decode_result RS_read::decode_single(Photo_num data)
                 map_y = 3 - each.second;
                 flag_y = true;
             }
-            else if (flag_x == false)
+            else if (each.second >= 4 && flag_x == false)
             {
                 photo_num_of_slice += each.first;
                 map_x = 7 - each.second;
@@ -131,65 +151,79 @@ Decode_result RS_read::decode_single(Photo_num data)
         result.flag = -1;
         return result;
     }
-    else // 多条击中的情况
+
+
+    else // 多条击中的情况,,解码函数有问题
     {
-        int map_x[2], map_y[2];
-        double photo_num_of_slice_x[2] = {0};
-        double photo_num_of_slice_y[2] = {0};
-        for (auto each : arrange_data)
+        // 存储结果的容器
+        std::vector<std::pair<double, int>> y_results; // 存储 second < 4 的结果
+        std::vector<std::pair<double, int>> x_results; // 存储 second >= 4 的结果
+
+        for (auto &each : arrange_data)
         {
-            bool flag_x[2] = {false, false}, flag_y[2] = {false, false};
-            for (int i = 0; i < 2; i++)
-                if (each.second < 4 && flag_y[i] == false)
-                {
-                    photo_num_of_slice_y[i] += each.first;
-                    map_y[i] = 3 - each.second;
-                    flag_y[i] = true;
-                }
-                else if (flag_x[i] == false)
-                {
-                    photo_num_of_slice_x[i] += each.first;
-                    map_x[i] = 7 - each.second;
-                    flag_x[i] = true;
-                }
-            if (flag_x[0] && flag_x[1] && flag_y[0] && flag_y[1])
+            // 检查是否已收集足够的样本
+            if (y_results.size() >= 2 && x_results.size() >= 2)
                 break;
+
+            if (each.second < 4)
+            {
+                // 收集小于4的结果，最多两个
+                if (y_results.size() < 2)
+                {
+                    std::pair<double, int> save;
+                    save.second = 3 - each.second;
+                    save.first = each.first;
+                    y_results.push_back(save);
+                }
+            }
+            else
+            { // each.second >= 4
+                // 收集大于等于4的结果，最多两个
+                if (x_results.size() < 2)
+                {
+                    std::pair<double, int> save;
+                    save.second = 7 - each.second;
+                    save.first = each.first;
+                    x_results.push_back(save);
+                }
+            }
         }
-        auto a_code = decoode(map_x[0] * map_x[1], map_y[0] * map_y[1]);
+
+         // 施工围栏
+    /*
+    ######################################################################################################################
+    ######################################################################################################################
+    ######################################################################################################################
+    ######################################################################################################################
+    */
+
+
+
+        auto a_code = decoode(x_results.at(0).second * x_results.at(1).second, y_results.at(0).second * y_results.at(1).second);//decode使用的是非12345678的结果
         if (a_code[1] == 0)
-            return result;
-        int site_1, site_2;
-        bool flag = false;
+            goto single;
         for (auto num : a_code)
             for (int i = 0; i < 4; i++)
                 for (int j = 0; j < 4; j++)
                     if (map[i][j] == num)
                     {
-                        if (flag)
-                        {
-                            if (site_1 > i && site_2 > j)
-                            {
-                                result.values[a_code[1]] = photo_num_of_slice_y[0] + photo_num_of_slice_x[0];
-                                result.values[a_code[0]] = photo_num_of_slice_y[1] + photo_num_of_slice_x[1];
-                            }
-                            else if (site_1 < i && site_2 < j)
-                            {
-                                result.values[a_code[0]] = photo_num_of_slice_y[0] + photo_num_of_slice_x[0];
-                                result.values[a_code[1]] = photo_num_of_slice_y[1] + photo_num_of_slice_x[1];
-                            }
-                            else
-                                return result;
-                        }
-                        else
-                        {
-                            site_1 = i;
-                            site_2 = j;
-                            flag = true;
-                        }
+                        for (auto temp : x_results)
+                            if (temp.second == i)
+                                result.values[num] += temp.first;
+                        for (auto temp : y_results)
+                            if (temp.second == j)
+                                result.values[num] += temp.first;
                     }
         result.flag = 1;
         return result;
     }
+    // 施工围栏
+    /*
+    ######################################################################################################################
+    ######################################################################################################################
+    ######################################################################################################################
+    ######################################################################################################################
+    */
 }
 
 RS_read::RS_read(std::string file_name, std::string file_path, bool ant_flag) : rs(7, file_name, file_path, ant_flag)
@@ -201,11 +235,14 @@ RS_read::RS_read(std::string file_name, std::string file_path, bool ant_flag) : 
     board b1(tree);
 
     DataContainer_all all_data = b1.Loop_all();
+    std::cout << all_data.size() << std::endl;
     for (auto each : all_data)
     {
         Photo_num get_one;
         for (int i = 0; i < 8; i++)
         {
+
+            // 输出的值太小了
             if (each[i][1] > 15000)
                 get_one[i][0] = (each[i][1] * hgrate[i] + hgzero[i] - zero_point[i]) / hgpeak[i];
             else
@@ -217,15 +254,19 @@ RS_read::RS_read(std::string file_name, std::string file_path, bool ant_flag) : 
     int array_num = 0;
     for (int i = 0; i < photo_num_all.size(); i++)
     {
+        // for (int j = 0; j < 8; j++)
+        //     std::cout << photo_num_all.at(i)[j][0] << '\t';
+        // std::cout << std::endl;
         auto input = decode_single(photo_num_all.at(i));
         if (input.flag == 0)
-            entry_num.push_back(array_num++);
+            entry_num.push_back(array_num);
         else
         {
             decode_r.push_back(input);
             entry_num.push_back(array_num++);
         }
     }
+    // SimplePause();
 }
 
 void init_data()
@@ -241,9 +282,9 @@ void init_data()
         moveFile(rootname, filename + rootname);
         // 初始化文件
         if (num == 0)
-            new rs(7, rootname, filename, true);
+            rs r1(7, rootname, filename, true);
         else
-            new rs(7, rootname, filename);
+            rs r1(7, rootname, filename);
 #endif
     }
     for (int num : name_num)
@@ -264,7 +305,7 @@ std::pair<double, int> get_position_one_sub1(Decode_result data)
         if (data.values[i] > 0)
             return {i * 11, i};
     }
-    return {-12, -1};
+    return {-10000, -1};
 }
 
 std::pair<double, int> get_position_one_sub2(Decode_result data)
@@ -274,10 +315,10 @@ std::pair<double, int> get_position_one_sub2(Decode_result data)
         if (data.values[i] > 0)
         {
             double q1 = data.values[i], q2 = data.values[i + 1];
-            return {double(i * q1 + (i + 11.0) * q2) / double(q1 + q2), i};
+            return {11 * double(i * q1 + (i + 1) * q2) / double(q1 + q2), i};
         }
     }
-    return {-22, -2};
+    return {-10000, -2};
 }
 
 double func_miu(double q1, double q2)
@@ -305,6 +346,9 @@ std::vector<Position_Temp> get_position_one()
         for (int i = 0; i < 3; i++)
         {
             Decode_result to_solve = Data_of_Board[i]->decode_r.at(Data_of_Board[i]->entry_num[each_match[i].first]);
+            for (auto out : to_solve.values)
+                std::cout << out << '\t';
+            std::cout << std::endl;
             if (to_solve.flag == -1)
             {
                 auto temp = get_position_one_sub1(to_solve);
@@ -319,7 +363,7 @@ std::vector<Position_Temp> get_position_one()
                 each_data.miu[i] = get_miu_of_2(to_solve);
             }
             else
-                empty_flag = true;
+                empty_flag = true; // 这个emptyflag没看懂有啥用
         }
         if (empty_flag)
         {
@@ -361,16 +405,60 @@ std::vector<Position_Temp> angle_fix(std::vector<Position_Temp> data)
     return data;
 }
 
-void Draw_Graph(std::vector<Position_Temp> data){
-    
+void Draw_Graph(std::vector<Position_Temp> data)
+{
+    auto c1 = new TCanvas("c1", "c1", 1600, 1200);
+    gStyle->SetOptTitle(0);
+    gStyle->SetOptStat(0);
+    gStyle->SetOptFit(1111);
+    gStyle->SetStatBorderSize(0);
+    gStyle->SetStatX(.89);
+    gStyle->SetStatY(.89);
+
+    TH1D *hist0 = new TH1D("h0", "type0", 400, -200, 200);
+    for (auto each : data)
+        if (each.site[2] > 0 && each.site[1] > 0 && each.site[0] > 0)
+            hist0->Fill(each.position[0] - (each.position[2] + each.position[1]) / 2); //-(each.position[0]+each.position[2])/2);
+    hist0->Draw();
+}
+
+void position_all()
+{
+    init_data();
+    auto result = get_position_one();
+
+    std::cout << "初始化完成" << std::endl;
+
+    // result = angle_fix(result); // 找角度可以复用
+
+    Draw_Graph(result);
+}
+
+void position_single()
+{
+    init_data();
+    auto result = get_position_one();
+
+    std::cout << "初始化完成" << std::endl;
+
+    auto c1 = new TCanvas("c1", "c1", 1600, 1200);
+    gStyle->SetOptTitle(0);
+    gStyle->SetOptStat(0);
+    gStyle->SetOptFit(1111);
+    gStyle->SetStatBorderSize(0);
+    gStyle->SetStatX(.89);
+    gStyle->SetStatY(.89);
+
+    TH1D *hist0 = new TH1D("h0", "type0", 400, -200, 200);
+    for (auto each : result)
+        if (each.site[1] > -1)
+            hist0->Fill(each.position[1]); //-(each.position[0]+each.position[2])/2);
+    hist0->Draw();
 }
 
 void position()
 {
-    init_data();
-    auto result = get_position_one();
-    result = angle_fix(result); // 找角度可以复用
-    Draw_Graph(result);
+    position_single();
 }
 
 // 位置分辨函数
