@@ -100,6 +100,12 @@ void RS_read::averrage_result()
             data.values[i] = data.values[i] / count[i] * base_rate;
 }
 
+int decode_connect(int n)
+{ // 用于解决sipm与编码模块编号之间转化的问题
+    int code_arr[4] = {2, 3, 0, 1};
+    return code_arr[n % 4];
+}
+
 Decode_result RS_read::decode_single(Photo_num data)
 {
     Decode_result result;
@@ -131,16 +137,16 @@ Decode_result RS_read::decode_single(Photo_num data)
         for (auto each : arrange_data)
         {
             bool flag_x = false, flag_y = false;
-            if (each.second < 4 && flag_y == false)
+            if (each.second >= 4 && flag_y == false)
             {
                 photo_num_of_slice += each.first;
-                map_y = 3 - each.second;
+                map_y = decode_connect(each.second);
                 flag_y = true;
             }
-            else if (each.second >= 4 && flag_x == false)
+            else if (each.second < 4 && flag_x == false)
             {
                 photo_num_of_slice += each.first;
-                map_x = 7 - each.second;
+                map_x = decode_connect(each.second);
                 flag_x = true;
             }
             if (flag_x && flag_y)
@@ -151,7 +157,6 @@ Decode_result RS_read::decode_single(Photo_num data)
         result.flag = -1;
         return result;
     }
-
 
     else // 多条击中的情况,,解码函数有问题
     {
@@ -165,13 +170,13 @@ Decode_result RS_read::decode_single(Photo_num data)
             if (y_results.size() >= 2 && x_results.size() >= 2)
                 break;
 
-            if (each.second < 4)
+            if (each.second >= 4)
             {
                 // 收集小于4的结果，最多两个
                 if (y_results.size() < 2)
                 {
                     std::pair<double, int> save;
-                    save.second = 3 - each.second;
+                    save.second = decode_connect(each.second)+1;
                     save.first = each.first;
                     y_results.push_back(save);
                 }
@@ -182,24 +187,13 @@ Decode_result RS_read::decode_single(Photo_num data)
                 if (x_results.size() < 2)
                 {
                     std::pair<double, int> save;
-                    save.second = 7 - each.second;
+                    save.second = decode_connect(each.second)+1;
                     save.first = each.first;
                     x_results.push_back(save);
                 }
             }
         }
-
-         // 施工围栏
-    /*
-    ######################################################################################################################
-    ######################################################################################################################
-    ######################################################################################################################
-    ######################################################################################################################
-    */
-
-
-
-        auto a_code = decoode(x_results.at(0).second * x_results.at(1).second, y_results.at(0).second * y_results.at(1).second);//decode使用的是非12345678的结果
+        auto a_code = decoode(x_results.at(0).second * x_results.at(1).second, y_results.at(0).second * y_results.at(1).second); // decode使用的是非12345678的结果
         if (a_code[1] == 0)
             goto single;
         for (auto num : a_code)
@@ -215,15 +209,14 @@ Decode_result RS_read::decode_single(Photo_num data)
                                 result.values[num] += temp.first;
                     }
         result.flag = 1;
+        for (auto num : data)
+            std::cout << num[0] << '\t';
+        std::cout << std::endl;
+        for (auto num : result.values)
+            std::cout << num << '\t';
+        std::cout << std::endl;
         return result;
     }
-    // 施工围栏
-    /*
-    ######################################################################################################################
-    ######################################################################################################################
-    ######################################################################################################################
-    ######################################################################################################################
-    */
 }
 
 RS_read::RS_read(std::string file_name, std::string file_path, bool ant_flag) : rs(7, file_name, file_path, ant_flag)
@@ -346,9 +339,6 @@ std::vector<Position_Temp> get_position_one()
         for (int i = 0; i < 3; i++)
         {
             Decode_result to_solve = Data_of_Board[i]->decode_r.at(Data_of_Board[i]->entry_num[each_match[i].first]);
-            for (auto out : to_solve.values)
-                std::cout << out << '\t';
-            std::cout << std::endl;
             if (to_solve.flag == -1)
             {
                 auto temp = get_position_one_sub1(to_solve);
@@ -437,9 +427,8 @@ void position_all()
 void position_single()
 {
     init_data();
-    auto result = get_position_one();
-
     std::cout << "初始化完成" << std::endl;
+    auto result = get_position_one();
 
     auto c1 = new TCanvas("c1", "c1", 1600, 1200);
     gStyle->SetOptTitle(0);
