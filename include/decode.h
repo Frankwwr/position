@@ -21,9 +21,9 @@ Map_result decode_init()
 
     Map_result result;
 
-    for (int i = 1; i < 5; i++)//此处有问题
-        for (int j = i + 1; j < 5; j++)
-            for (int k = 1; k < 5; k++)
+    for (int i = 0; i < 4; i++) // 此处有问题
+        for (int j = i + 1; j < 4; j++)
+            for (int k = 0; k < 4; k++)
                 for (int l = k + 1; l < 5; l++)
                 {
                     std::vector<int> nor_re;
@@ -32,12 +32,13 @@ Map_result decode_init()
                     nor_re.push_back(map[i][l]);
                     nor_re.push_back(map[j][k]);
                     std::sort(nor_re.begin(), nor_re.end());
-                    int l1 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), i * j)); // 给出两个变量的位置
-                    int l2 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), k * l));
+                    int l1 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), (i + 1) * (j + 1))); // 给出两个变量的位置
+                    int l2 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), (k + 1) * (l + 1)));
                     result[l1][l2][0] = nor_re[0];
                     for (int num : nor_re)
                     {
-                        if (num - result[l1][l2][0] == 1){
+                        if (num - result[l1][l2][0] == 1)
+                        {
                             result[l1][l2][1] = num;
                             break;
                         }
@@ -55,7 +56,6 @@ std::array<int, 2> decoode(int x, int y)
 {
     // 用于定位的列表
     std::list<int> lst1 = {2, 3, 4, 6, 8, 12};
-
 
     int l1 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), x)); // 给出两个变量的位置
     int l2 = std::distance(lst1.begin(), std::find(lst1.begin(), lst1.end(), y));
